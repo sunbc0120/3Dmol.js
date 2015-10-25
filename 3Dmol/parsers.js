@@ -1175,7 +1175,8 @@ $3Dmol.Parsers = (function() {
 
         var atoms = [[]];
         var atoms_cnt = 0;
-        var noH = !options.keepH; // suppress hydrogens by default
+        // var noH = !options.keepH; // suppress hydrogens by default
+        var noH = false;
         var computeStruct = !options.noSecondaryStructure;
         var noAssembly = !options.doAssembly; // don't assemble by default
         var copyMatrix = !options.duplicateAssemblyAtoms; //default true
