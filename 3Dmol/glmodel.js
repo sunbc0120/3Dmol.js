@@ -1181,7 +1181,7 @@ $3Dmol.GLModel = (function() {
         };
         
         // set default style and colors for atoms
-        var setAtomDefaults = function(atoms, id) {
+        this.setAtomDefaults = function(atoms) {
             for ( var i = 0; i < atoms.length; i++) {
                 var atom = atoms[i];
                 if (atom) {
@@ -1202,43 +1202,17 @@ $3Dmol.GLModel = (function() {
          * @param {Object} options - format dependent options (e.g. 'options.keepH' to keep hydrogens)
          */
         this.addMolData = function(data, format, options) {
-            options = options || {}; 
-            format = format || "";
+            options = options || {};
+            var parsedAtoms = $3Dmol.GLModel.parseMolData(data, format, options);
             dontDuplicateAtoms = !options.duplicateAssemblyAtoms;
-            
-            if (!data)
-                return; //leave an empty model
-            
-            if(/\.gz$/.test(format)) {
-                //unzip gzipped files
-                format = format.replace(/\.gz$/,'');
-                try {
-                    data = pako.inflate(data, {to: 'string'});
-                } catch(err) {
-                    console.log(err);
+            var mData = parsedAtoms.modelData;
+            if (mData) {
+                if (Array.isArray(mData)) {
+                    modelData = mData[0];
+                } else {
+                    modelData = mData;
                 }
             }
-            
-            if(typeof($3Dmol.Parsers[format]) == "undefined") {
-            	//let someone provide a file name and get format from extension
-            	format = format.split('.').pop();
-            	if(typeof($3Dmol.Parsers[format]) == "undefined") {            	
-	                console.log("Unknown format: "+format);
-	                //try to guess correct format from data contents
-	                if(data.match(/^@<TRIPOS>MOLECULE/gm)) {
-	                    format = "mol2";
-	                } else if(data.match(/^HETATM/gm) || data.match(/^ATOM/gm)) {
-	                    format = "pdb";
-	                } else if(data.match(/^.*\n.*\n.\s*(\d+)\s+(\d+)/gm)){
-	                    format = "sdf"; //could look at line 3
-	                } else {
-	                    format = "xyz";
-	                }
-	                console.log("Best guess: "+format);
-            	}
-            }
-            var parse = $3Dmol.Parsers[format];
-            var parsedAtoms = parse(data, options, modelData);
 
             if (frames.length == 0) { //first call
                 for (var i = 0; i < parsedAtoms.length; i++) {
@@ -1263,10 +1237,18 @@ $3Dmol.GLModel = (function() {
             }
             
             for (var i = 0; i < frames.length; i++) {
-                setAtomDefaults(frames[i], id);
+                this.setAtomDefaults(frames[i], id);
             }
 
         };
+
+        this.setDontDuplicateAtoms = function(dup) {
+            dontDuplicateAtoms = dup;
+        }
+
+        this.setModelData = function(mData) {
+            modelData = mData;
+        }
         
         /** given a selection specification, return true if atom is selected
          * 
@@ -1287,7 +1269,18 @@ $3Dmol.GLModel = (function() {
                         break;
                     }
                 }
-
+                else if(key == "properties" && atom[key]) {
+                    for (var propkey in sel.properties) {
+                        if(typeof(atom.properties[propkey]) === 'undefined') {
+                            ret = false;
+                            break
+                        }
+                        if(atom.properties[propkey] != sel.properties[propkey]) {
+                            ret = false;
+                            break;
+                        }
+                    }
+                }
                 else if (sel.hasOwnProperty(key) && key != "props" && key != "invert" && key != "model" && key != "byres" && key != "expand" && key != "within") {
 
                     // if something is in sel, atom must have it                    
@@ -1489,6 +1482,10 @@ $3Dmol.GLModel = (function() {
             // mapping from old index to new index
             var i;
             for(i = 0; i < newatoms.length; i++) {
+                if(typeof(newatoms[i].index) == "undefined")
+                    newatoms[i].index = i;
+                if(typeof(newatoms[i].serial) == "undefined")
+                    newatoms[i].serial = i;
                 indexmap[newatoms[i].index] = start+i;
             }
             
@@ -1500,13 +1497,18 @@ $3Dmol.GLModel = (function() {
                 a.index = nindex;
                 a.bonds = [];
                 a.bondOrder = [];
+                a.model = id;
+                a.style = a.style || defaultAtomStyle;
+                if(typeof(a.color) == "undefined")
+                    a.color = ElementColors[a.elem] || defaultColor;                
                 // copy over all bonds contained in selection,
                 // updating indices appropriately
-                for(var j = 0; j < olda.bonds.length; j++) {
+                var nbonds = olda.bonds ? olda.bonds.length : 0;
+                for(var j = 0; j < nbonds; j++) {
                     var neigh = indexmap[olda.bonds[j]];
                     if(typeof(neigh) != "undefined") {
                         a.bonds.push(neigh);
-                        a.bondOrder.push(olda.bondOrder[j]);
+                        a.bondOrder.push(olda.bondOrder ? olda.bondOrder[j] : 1);
                     }                
                 }
                 atoms.push(a);
@@ -1551,6 +1553,12 @@ $3Dmol.GLModel = (function() {
          * @param {boolean} add - if true, add to current style, don't replace
          */
         this.setStyle = function(sel, style, add) {
+            
+            if(typeof(style) === 'undefined' && typeof(add) == 'undefined') {
+                //if a single argument is provided, assume it is a style and select all
+                style = sel;
+                sel = {};
+            }
             
             // report to console if this is not a valid selector
             var s;
@@ -1697,6 +1705,24 @@ $3Dmol.GLModel = (function() {
                 if(val != null) {
                     a.color = scheme.valueToHex(parseFloat(a.properties[prop]), [range[0],range[1]]);
                 }                    
+            }
+        };
+        
+        /**
+         * @function $3Dmol.GLModel.setColorByFunction
+         * @param {type} sel
+         * @param {type} func
+         */
+        this.setColorByFunction = function(sel, colorfun) {
+            var atoms = this.selectedAtoms(sel, atoms);
+            lastColors = null; // don't bother memoizing
+            if(atoms.length > 0)
+                molObj = null; // force rebuild
+            
+            // now apply colorfun
+            for (i = 0; i < atoms.length; i++) {
+                a = atoms[i];
+                a.color = colorfun(a);
             }
         };
 
@@ -1861,6 +1887,61 @@ $3Dmol.GLModel = (function() {
         }
 
     }
+
+    GLModel.parseMolData = function(data, format, options) {
+        format = format || "";
+
+        if (!data)
+            return []; //leave an empty model
+
+        if(/\.gz$/.test(format)) {
+            //unzip gzipped files
+            format = format.replace(/\.gz$/,'');
+            try {
+                data = pako.inflate(data, {to: 'string'});
+            } catch(err) {
+                console.log(err);
+            }
+        }
+
+        if(typeof($3Dmol.Parsers[format]) == "undefined") {
+            //let someone provide a file name and get format from extension
+            format = format.split('.').pop();
+            if(typeof($3Dmol.Parsers[format]) == "undefined") {
+                console.log("Unknown format: "+format);
+                //try to guess correct format from data contents
+                if(data.match(/^@<TRIPOS>MOLECULE/gm)) {
+                    format = "mol2";
+                } else if(data.match(/^HETATM/gm) || data.match(/^ATOM/gm)) {
+                    format = "pdb";
+                } else if(data.match(/^.*\n.*\n.\s*(\d+)\s+(\d+)/gm)){
+                    format = "sdf"; //could look at line 3
+                } else {
+                    format = "xyz";
+                }
+                console.log("Best guess: "+format);
+            }
+        }
+        var parse = $3Dmol.Parsers[format];
+        var parsedAtoms = parse(data, options);
+
+        return parsedAtoms;
+    };
+
+
+    // set default style and colors for atoms
+    GLModel.setAtomDefaults = function(atoms, id) {
+        for ( var i = 0; i < atoms.length; i++) {
+            var atom = atoms[i];
+            if (atom) {
+                atom.style = atom.style || defaultAtomStyle;
+                atom.color = atom.color || ElementColors[atom.elem] || defaultColor;
+                atom.model = id;
+                if (atom.clickable)
+                    atom.intersectionShape = {sphere : [], cylinder : [], line : [], triangle : []};
+            }
+        }
+    };
 
     return GLModel;
     

@@ -14,6 +14,7 @@ head, body {
 </style>
 <script>
 	var glviewer = null;
+	var glviewer2 = null;
 	var labels = [];
 
 	var addLabels = function() {
@@ -36,51 +37,7 @@ head, body {
 			labels.push(atom);
 		}
 	};
-	
-	var colorSS = function(viewer) {
-		//color by secondary structure
-		var m = viewer.getModel();
-		m.setColorByFunction({}, function(atom) {
-			if(atom.ss == 'h') return "magenta";
-			else if(atom.ss == 's') return "orange";
-			else return "white";
-		});
-		viewer.render();
-	}
 
-	var atomcallback = function(atom, viewer) {
-		if (atom.clickLabel === undefined
-				|| !atom.clickLabel instanceof $3Dmol.Label) {
-			atom.clickLabel = viewer.addLabel(atom.elem + atom.serial, {
-				fontSize : 14,
-				position : {
-					x : atom.x,
-					y : atom.y,
-					z : atom.z
-				},
-				backgroundColor: "black"
-			});
-			atom.clicked = true;
-		}
-
-		//toggle label style
-		else {
-
-			if (atom.clicked) {
-				var newstyle = atom.clickLabel.getStyle();
-				newstyle.backgroundColor = 0x66ccff;
-
-				viewer.setLabelStyle(atom.clickLabel, newstyle);
-				atom.clicked = !atom.clicked;
-			}
-			else {
-				viewer.removeLabel(atom.clickLabel);
-				delete atom.clickLabel;
-				atom.clicked = false;
-			}
-
-		}
-	};
 var readText = function(input,func) {
 			if(input.files.length > 0) {
 				var file = input.files[0];
@@ -92,65 +49,65 @@ var readText = function(input,func) {
 			    $(input).val('');
 			}
 		};
+		
+	var setStyle = function(style) {
+		glviewer.setStyle(style); 
+		glviewer2.setStyle(style); 
+		glviewer.render();
+		glviewer2.render();
+	};
 	$(document).ready(function() {
 
 		moldata = data = $("#moldata_pdb_large").val();
-		glviewer = $3Dmol.createViewer("gldiv", {
-			defaultcolors : $3Dmol.rasmolElementColors
+		glviewer = $3Dmol.createViewer("gldiv1", {
+			defaultcolors : $3Dmol.rasmolElementColors,
+			camerax: 3
 		});
+		glviewer2 = $3Dmol.createViewer("gldiv2", {
+			defaultcolors : $3Dmol.rasmolElementColors,
+			camerax: -3
+		});
+		
 		glviewer.setBackgroundColor(0xffffff);
+		glviewer2.setBackgroundColor(0xeeeeee);
 
 		receptorModel = m = glviewer.addModel(data, "pqr");
-
-		atoms = m.selectedAtoms({});
-
-		for ( var i in atoms) {
-			var atom = atoms[i];
-			atom.clickable = true;
-			atom.callback = atomcallback;
-		}
-
-		glviewer.mapAtomProperties($3Dmol.applyPartialCharges);
+		glviewer2.addModel(data, "pqr");
+		
+		glviewer.linkViewer(glviewer2);
+		glviewer2.linkViewer(glviewer);
+		
+		setStyle({cartoon:{color: 'spectrum'}})
 		glviewer.zoomTo();
-		glviewer.render();
-
-
 	});
 </script>
 </head>
 <body>
-	<div id="gldiv" style="width: 100%; height: 80vh; margin: 0; padding: 0; border: 0;"></div>
+	<div id="gldiv1" style="float: left; width: 50%; height: 80vh; margin: 0; padding: 0; border: 0;"></div>
+	<div id="gldiv2" style="position: relative; float: right; width: 50%; height: 80vh; margin: 0; padding: 0; border: 0;"></div>
 
 	<hr style="margin: 0;">
 
 	<br>
 	<input type="button" value="Stick"
-		onclick="glviewer.setStyle({},{stick:{}}); glviewer.render();"></input>
+		onclick="setStyle({stick:{}});"></input>
 	<input type="button" value="Line"
-		onclick="glviewer.setStyle({},{line:{}}); glviewer.render();"></input>
+		onclick="setStyle({line:{}});"></input>
 	<input type="button" value="Cross"
-		onclick="glviewer.setStyle({},{cross:{linewidth:2}}); glviewer.render();"></input>
+		onclick="setStyle({cross:{linewidth:2}});"></input>
 	<input type="button" value="Sphere"
-		onclick="glviewer.setStyle({},{sphere:{}}); glviewer.render();"></input>
+		onclick="setStyle({sphere:{}});"></input>
 	<input type="button" value="Cartoon"
-		onclick="glviewer.setStyle({hetflag:false},{cartoon:{}}); glviewer.render();"></input>
-	<input type="button" value="Label alpha C's"
-		onclick="addLabels(glviewer); glviewer.render();"></input>
-	<input type="button" value="Color SS"
-		onclick="colorSS(glviewer);"></input>
-	<br>
-	<input type="button" value="Surface1"
-		onclick="surf1 = glviewer.addSurface($3Dmol.SurfaceType.VDW, {}, {hetflag:false,chain:'A'},{hetflag:false,chain:'A'});"></input>
-	<input type="button" value="Surface2"
-		onclick="surf2 = glviewer.addSurface($3Dmol.SurfaceType.MS, {map:{prop:'partialCharge',scheme:new $3Dmol.Gradient.RWB(-.6,.6)}, opacity:0.85}, {chain:'B'},{chain:'B'});"></input>
-	<input type="button" value="RM Surfaces"
-		onclick="glviewer.removeAllSurfaces();"></input>
+		onclick="setStyle({cartoon:{color: 'spectrum'}});"></input>
+
 	<br>
 	<input type="button" value="Recenter" onclick="glviewer.zoomTo();"></input>
+	<input type="button" value="Outline" onclick="glviewer.setViewStyle({style: 'outline'}); glviewer2.setViewStyle({style: 'outline'}); glviewer.render(); glviewer2.render();">
+	<input type="button" value="No Outline" onclick="glviewer.setViewStyle({}); glviewer2.setViewStyle({}); glviewer.render(); glviewer2.render();">
 	<br>
 	<input id="pdbid" value="1UBQ" size=4>
 	<button
-		onclick="glviewer.clear(); m = $3Dmol.download('pdb:' + $('#pdbid').val(), glviewer, {doAssembly:true, noSecondaryStructure: false});">Download</button>
+		onclick="glviewer.clear(); m = $3Dmol.download('pdb:' + $('#pdbid').val(), glviewer, {doAssembly:true});glviewer2.clear(); $3Dmol.download('pdb:' + $('#pdbid').val(), glviewer2, {doAssembly:true});">Download</button>
 	<br>
 	<input type="file" onchange="readText(this, function(data, name) {glviewer.clear(); m= glviewer.addModel(data,name); glviewer.zoomTo(); glviewer.render();} );">
 
